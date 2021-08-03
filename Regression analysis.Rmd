@@ -1,0 +1,433 @@
+---
+title: "ADVANCED STATISTICAL MODELS ASSIGNMENT"
+author: "Martin Nyamu Wanjiru"
+date: "12/3/2019"
+output:
+  pdf_document: default
+  html_document: default
+  word_document: default
+RegNo.: W62/12675/2018
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(pscl)
+library(tidyverse)
+library(knitr)
+library(msm)
+library(sandwich)
+library(nnet)
+require(foreign)
+require(Hmisc)
+require(MASS)
+require(reshape2)
+library(car)
+#install.packages("tinytex")
+#tinytex:::install_prebuilt()
+
+```
+
+```{r, echo=FALSE}
+# setwd("D:\\MASTERS NOTES, 2ND YEAR\\stat\\assigment\\REHRESSION")
+
+```
+# QUESTION TWO
+
+The ICU data set icudata.csv consists of a sample of 200 subjects who were part of a much larger study on survival of patients following admission to an adult intensive care unit (ICU). The major goal of this study was to develop a regression model to predict the probability of survival to hospital discharge of these patients and to study the risk factors associated with ICU mortality. The variables in the dataset are:
+Name Codes/Values Abbreviation:
+
+Vital Status 0 = Lived, 1= Died STA
+Age Years AGE
+
+Gender 0 = Male, 1= Female SEX
+
+Race 1 = White,2=Black,3=Other RACE
+
+Type of service 0 = Medical,1=Surgical SER
+
+Infection Probable 0 = No,1=Yes INF
+
+Systolic Blood Pressure mm Hg SYS
+
+Level of Consciousness 0 =No Coma,1=Coma LOC
+
+Fit an appropriate model(s) to answer the question(s) the investigator had.
+```{r, echo=FALSE}
+data <- read.table("icudata.csv", header=T, sep=",")
+data<-dplyr::select(data, -X, -X.1)
+#converting certain variables to factor variables
+names<-c("GENDER", "RACE", "INF", "SER", "LOC")
+data[,names]<-lapply(data[,names], factor)
+```
+
+```{r, echo=FALSE}
+# Running a logistic regresion model
+model1 <- glm(STA~AGE+GENDER+RACE+SER+INF+SYS+LOC, data=data, famil="binomial")
+# calculating Psuodo R squared
+#ll.null<-model1$null.deviance/-2
+#ll.proposed<-model1$deviance/-2
+
+#(ll.null-ll.proposed)/ll.null
+
+# 1-pchisq(2*(ll.proposed-ll.null),df=length(model1$coefficients))
+```
+
+```{r, echo=FALSE}
+# predicting probabiltiy of survival
+logit2prob<-function(logit){
+  odds<-exp(logit)
+  prob<-odds/(1+odds)
+  return(prob)
+}
+prob<-logit2prob(coef(model1))
+
+newdata<-data.frame(AGE=1,GENDER1=1,RACE2=1,SER1=1,INF1=1,LOC1=1, SYS=20)
+```
+
+# SOLUTION
+
+# R output with extracted coefficients
+```{r, include=TRUE, echo=FALSE}
+# odds ratio and probabilities
+# store coeffiecients in anonther object
+
+coefs<-coef(model1)
+oddsratio <- exp(coefs)
+
+aa <-cbind(coefs, oddsratio, prob, summary(model1)$coef[,3],summary(model1)$coef[,4])
+colnames(aa)<-c("coefficients", "oddsratio","probabilities", "std-error", "p-value")
+kable(aa, digits = 3, format = "pandoc", caption = "Multiple Logistic Regresion Model") # the digits argument controls rounding
+```
+
+```{r, include=TRUE, echo=FALSE}
+# testing the signficance of the model
+LiRat<-with(model1, null.deviance-deviance)
+df<-with(model1,df.null-df.residual)
+p_value<-round(with(model1, pchisq(null.deviance-deviance, df.null-df.residual, lower.tail=FALSE)),3)
+sigmod<-cbind(LiRat, df, p_value)
+colnames(sigmod)<-c("Statistic", "Degree of Freedom", "p-value")
+rownames(sigmod)<-c("Likelihood Ratio")
+kable(sigmod, digits = 3, format = "pandoc", caption = "The Likelihood Ratio Test")
+```
+
+__The fitted model is:__
+
+$ln(STA) = -1.567 + 0.027Age - 0.078GENDER1 - 1.114RACE2 + 0.375RACE3 - 0.977SER1 + 0.294INF1 - 0.011SYS + 3.796LOC1$
+
+Where:
+
+Infection Probable = INF
+
+Systolic Blood Pressure mm Hg = SYS
+
+Level of Consciousness = LOC
+
+Vital Status = STA (dead or alive)
+
+Using likelihood ratio test  we found that the model as a whole, fits the data significantly better than an empty model(p < 0.001).
+
+Some variables like Age, Type of service, and Level of Consciousness are signficantly associated with Vital Status (p < 0.05) after adjusting for other predictors. Consequently, other variables like Gender, Race, Infection Probable, and Systolic Blood Pressure are not signficantly associated with Vital Status (p > 0.05) after adjusting for other predictors.
+
+For the significantly predictors, a patient admitted in ICU (Intensive care unit) is 3% more likely to die for every one year increase in age while adjusting for other predictors. 
+Similarly, a patient in ICU who under go surgical service is 62% less likely to die compared to the patient who under-go medical service while adjsuting for other predictors. Moreover, a patient admitted in ICU while in a coma is 45 times more likely to die than a patient admitted while not in a coma controlling for other predictors.
+
+The probability of a patient in the ICU dying due to age is 0.507 controlling for other predictors. The probability of dying due to surgical service adjusting for other variables is 0.273 suggesting that there is a high likelyhood of dying due to medical service than to surgical service. Similarly, the probability of an ICU patient to die due to coma is 0.98, suggesting that there is a 98% chance dying for a patient in a coma while in ICU.
+
+```{r, echo=FALSE}
+cancer <- read.table("serv.csv", header=T, sep=",")
+```
+
+# QUESTION FOUR
+
+The data set serv.csv gives part of data obtained during a 10 year follow up study
+on risk factors associated with death due to cancer for those serving in the military
+in Britain. The number of deaths are recorded per person years for the pair combination
+of type of service(veteran or non veteran) and age category of the soldiers.
+Are the two factors significantly associated with cancer deaths?
+
+## SOLUTION
+
+```{r, echo=FALSE}
+# Running a logistic regresion model
+model2 <- lm(cancer~age+service, data=cancer)
+
+sstable <- Anova(model2, type = 3)
+options(knitr.kable.NA = '')
+kable(sstable, digits = 3, format = "pandoc", caption = "ANOVA table")
+```
+
+From the analysis of variance, the two categorical variables, age and type of service are statistically signficant at 0.05 level of signicance (p < 0.05). This suggest that the two variables have a signficant contribution to the predicting power of the model. Therefore, a multiple linear regression model was used to determine how age and the type of service are associated with cancer deaths.
+
+```{r, echo=FALSE}
+# bind the rows together in the desired order
+model4 <- cbind(model2$coefficients, summary(model2)$coef[,3],summary(model2)$coef[,4])
+colnames(model4)<-c("Estimate", "t-value","pr(>|t|)")
+kable(model4, digits = 3, format = "pandoc", caption = "Multiple Linear Regresion Model") # the digits argument controls rounding
+
+```
+
+From the Multiple linear regression analysis, the overall model is statistically significant at 0.05 level of signficance (F(10)=6.224, p = 0.00367). The two variables (age and the type of service) explain 73.3% of the variation of the death associated with cancer and 26.7% are explained by other variables.
+Controlling for age, veteran are less likely to die due to cancer death than non veteran by 56.36 deaths on average. Similarly, while controlling for the type of service, death to cancer was signficantly different (p < 0.05) between those aged 30 to 44 years and those between 50 to 64 years, with those between 35 to 39 years recording the highest average number of deaths (142.5) compared to young people below 25 years. The number of deaths for those between 25 to 29 years, between 45 to 49 years and between 65 to above 70 years was not statistically significant different (p > 0.05) from those recorded among young people below 25 years of age. 
+
+# QUESTION SEVEN
+
+The dataset pchildren.csv represents data on number of children a woman has ; how long she has been married; where she lives and education level : marriage duration (1=0-4, 2=5-9, 3=10-14, 4=15-19, 5=20-24), residence (1=City, 2=Town, 3=Rural), education (1=none, 2=lower primary, 3=upper primary, 4=secondary+), the number of children ever born.
+
+(i) What is a possible research study question for this dataset?
+(ii) Carry out an analysis for the study question you proposed and write a brief
+report on findings.
+
+## SOLUTION
+
+The research question is: __To determine how the number of children born to a woman is influenced by how long she has been married, where she lives, and the level of education attained.__
+
+```{r, echo=FALSE}
+children <- read.table("pchildren.csv", header=T, sep=",")
+#converting to factor variables
+children<-within(children, {
+  marriage<-factor(marriage, levels=1:5, labels = c("0-4", "5-9", "10-14", "15-19", "20-24") )
+  residence<-factor(residence, levels=1:3, labels = c("City", "Town", "Rural"))
+  education<-factor(education, levels=1:4, labels=c("none", "lower primary", "upper primary", "secondary +"))
+})
+
+```
+
+```{r,echo=FALSE}
+# Running a poission regresion model
+
+model <- glm(child~1,family = "poisson", data=children)
+model5 <- glm(child~marriage+residence+education, family = "poisson", data=children)
+
+
+r.est <-cbind(Estimate=coef(model5), "Rate Ratio"=exp(coef(model5)), "std-error"=summary(model5)$coef[,3],"p-value"=summary(model5)$coef[,4])
+
+kable(r.est, digits = 3, format = "pandoc", caption = "Poisson Regresion Model") # the digits argument controls rounding
+# robust standard errors
+#cov.ml<-vcovHC(model4, type="HC0")
+#std.err<-sqrt(diag(cov.ml))
+#r.est<-round(cbind(Estimate=coef(model4), "Rate Ratio"=exp(coef(model4)), "Robust SE"=std.err, "pr(>|z|)"=2*pnorm(abs(coef(model4)/std.err), lower.tail=FALSE), Lower=coef(model4)-1.96*std.err, Upper=coef(model4)+1.96*std.err),3)
+```
+
+
+```{r, echo=FALSE}
+# checking for signficance of the model using deviance method
+kable(with(model5, cbind(res.deviance=deviance, df=df.residual, "p-value"=pchisq(deviance, df.residual, lower.tail=FALSE))), format="pandoc", digits = 3, caption = "Test for Model fit using Deviance Method")
+# comparing the models
+#anova(model, model4)
+#pchisq(7.336,50, lower.tail=F)
+```
+
+According to the analysis, the p-value (1.000) says we have insufficient evidence to reject the null hypothesis and conlude that the model fit the data well at 0.05 level of signficance. From the analysis it was revealed that the type of residence and education levels had no significant (p>0.05) contribution to the predicting power of the model but, marriage duration was significant (p<0.05).
+
+Adjusting for education level and residence type the average number of childeren born for a woman married for 5 to 9 years was about 2.4 times more than those born for a woman married for 0 to 4 years. A woman with 10-14 years in marriage had thrice number of children that for a woman with 0-4 years in marriage. Similarly a woman who was married for 15 to 19 years had 3.7 times the number of children that for a woman with 0 to 4 years in marriage. Besides, a woman who is married for 20 to 24 years has 4.5 times number of children that for a woman married for 0 to 4 years. This postulated that the number of children born to a woman increases with duration in marriage. It was surmised that the number of children born to a woman depends on the number of years she is in marriege.
+
+
+Adjusting for education level attained and marriage duration the average number of childeren born for a woman living in town and in rural area are 19% and 10% respectively more than for a woman living in the city, though the difference is not statistically signficant (p>0.05). Similarly, the number of children for a woman who has reached lower primary level of education is 7% higher than that for an illiterate(never gone to school) woman though the difference is not statistically signficant (p>0.05). Conseqently, a woman who has reached upper primary level of education has 8.9% less number of children than those who has no education and the difference is not signicant (p > 0.05). Also, a woman who has secondary level of education and above has 33.9% less number of children than the one with no education and the difference is statistically significant (p = 0.05). This suggest that most educated women have lower number of children compared to those with no education.
+
+From the analysis it is surmised that the highest the number of years a woman have been married the higher the number of childeren she has. Nevertheless, education level reached and the place of residence does not have a signficant influence on the number of children a woman has.
+
+# QUESTION NINE
+
+The dataset healthutilization.csv is part of data from a family health survey of
+rural women. The data is for 3395 pregnancies with outcome is type of provider seen
+during pregnancy coded 1=none, 2=midwife, 3= clinical officer, 4= gynaecologist;
+and three predictors:
+Age : 1=20-24 years, 2=25-34 years, and 3=35 and above.
+Access:availability of modern health services within one hour of
+the community, coded 1=yes, 0=no.
+Social:the support of husband and close relatives,coded 0= no, 1=yes
+Finally since the data is grouped data, frequency is the number of women in each
+category defined by response as well as the three predictors.
+
+```{r, echo=FALSE}
+
+health <- read.table("healthutilization.csv", header=T, sep=",")
+#converting to factor variables
+#names<-c("age", "social", "access", "providertype")
+#health[,names]<-lapply(health[,names], factor)
+
+health<-within(health, {
+  age<-factor(age, levels=1:3, labels = c("20-24", "25-34", "35+") )
+  social<-factor(social, levels=0:1, labels = c("no", "yes"))
+  access<-factor(access, levels=0:1, labels=c("no", "yes"))
+  providertype<-factor(providertype, levels=1:4, labels=c("none", "midwife", "clinical officer", "gynaecologist"))
+})
+```
+
+## SOLUTION
+
+```{r, echo=FALSE}
+# Multinomial Logistic Regression
+# setting reference variable
+health$providertype2<-relevel(health$providertype, ref="none")
+
+test<-multinom(providertype2~age+social+access, data=health)
+
+#summary(test)
+
+# calculate p-value for each coefficent using wald test, z-values
+z<-summary(test)$coefficients/summary(test)$standard.errors
+# 2-tailed z test
+p<-(1-pnorm(abs(z), 0,1))*2
+kable(p, digits = 4, format = "pandoc", caption = "P-values for Multinomial Logistic Regression Coefficients ")
+# exponentiate the coefficients
+kable(exp(coef(test)), digits = 4, format = "pandoc", caption = "Multinomial Logistic Regression Exponentiated Coefficients")
+
+#predicted probabilities
+#dage<-data.frame(age=c("20-24", "25-34", "35+"),social=health$social,access=health$access)
+#predict(test, newdata=dage, "probs")
+
+```
+
+__The Model fit is:__
+
+$ln\left(\frac{Pr(Midwife)}{Pr(none)}\right) = 0.00024+0.00040Age1+0.00041Age2+0.0002Social-0.00096Access$
+
+$ln\left(\frac{Pr(Clinical \,Officer)}{Pr(none)}\right) = 0.00020+0.00038Age1+0.00039Age2+0.00013Social-0.00099Access$
+
+$ln\left(\frac{Pr(Gynaecologist)}{Pr(none)} \right)= 0.13371+0.00041Age1-0.43227Age2+0.4330Social-0.43353Access$
+
+Overall age in not statistically associated with type of provider seen during pregnancy adjusting for social and access. Similarly, overall social and access are not statistically associated with type of provider seen during pregrancy adjusting for relevant variables.
+
+Adjusting social support and access to modern health services constant, a woman who is between 25-34 and above 35 years of age are 0.04% more likely to have a midwife vs none compared to a woman who is between 20-24 years.
+
+Therefore, holding age and access constant, a woman who has husband and close relative support is 0.02% more likely to have a midwife vs none compared to woman who has no any support. Since the difference for the three variables is neglible when comparing the type of provider seen during pregnancy reference to none, we conlude that adjusting for any relevant variables there is no significant difference in the type of provider seen during pregnancy for a woman who is in any age group, receiving or not receiving social support or accessing or not accessing modern health services. 
+
+
+# QUESTION ELEVEN
+
+A clinical trial for the treatment of small-cell lung cancer was carried out where patients were randomly assigned to two treatment groups: the sequential therapy(the same combination of chemotherapeutic agents administered in each treatment cycle) and the alternating therapy(three different combinations alternated from cycle to cycle). Gender was considered a potential effect modifier.The results of the trial were as follows:
+
+## SOLUTION
+
+```{r, echo=FALSE}
+
+data<-array(data=c(68,14,83,32,51,27,87,17,39,12,56,12,36,8,60,5), dim=c(2,4,2),
+  dimnames = list("Gender"=c("Male", "Female"),
+                  "Response"=c("Progressive", "No change", "PartialR", "CompleteR"),
+                  "Treatment"=c("Sequential", "Alternating")))
+
+## Make table
+ftable<-ftable(data, row.vars = c("Treatment","Gender"))
+# The addmargins function provides marginal totals
+# converting data into a data.frame and setting a reference variable
+data.df <- as.data.frame(as.table(data))
+
+# change to a wide format
+#data_wide <- spread(data.df, Response, Freq)#
+#return back to long format
+#data_long <- gather(data_wide, Response, Freq, #Progressive:CompleteR, factor_key=TRUE)
+#data_long
+
+# set a reference variable#
+#data.df[,-4] <- lapply(data.df[,-4], relevel, ref = "No Change")#
+
+# fitting model ordinal logistic regression
+
+mm<-polr(Response~Gender+Treatment+Gender*Treatment, data=data.df, weights = Freq, Hess = T)
+
+## store table
+ctable <- coef(summary(mm))
+## calculate and store p values
+p <- pnorm(abs(ctable[, "t value"]), lower.tail = FALSE) * 2
+
+## combined table
+ctable <- cbind("odds ratio"=exp(coef(mm)),ctable, "p value" = p)
+colnames(ctable)<-c("oddsratio", "coefficients", "std-error","t value", "p-value")
+kable(ctable, digits = 4, format = "pandoc", caption = "Ordinal Logistic Regresion Model")
+# prediction
+#predict(mm,newdata = data.frame(Gender="Male", Treatment="Sequential"),type="p")
+ 
+```
+
+
+The response variable is ranked as follows: 
+
+$$progressive \,disease (=1)<no\, change(=2)<partial \,remission(=3)<complete\, remission(=4)$$
+
+__The model fit is:__
+
+$$ln\left(\frac{P(y=1)}{P(y=2 \,or\, y=3 \,or \,y=4)} \right) = -1.282-0.0193Female+0.1149Alternating-0.691Female*Alternating$$
+
+$$ln\left(\frac{P(y=1 \,or\,y=2)}{P(y=3 \,or \,y=4)} \right) = 0.078-0.0193Female+0.1149Alternating-0.691Female*Alternating$$
+
+$$ln\left(\frac{P(y=1\,or\,y=2 \,or\, y=3)}{P(y=4)} \right) = 0.9528-0.0193Female+0.1149Alternating-0.691Female*Alternating$$
+
+Gender of the lung cancer patient was not a significant predictor (p = 0.9262). Whether the patient was a male or a female has no information on response to chemotherapy adjusting for the type of treatment.
+The type of treatment was not a significant predictor(p = 0.4974). Whether the patients received alternating treatment or sequential treatment does not provide information on response to chemotherapy after adjusting for gender. The analysis also revealed that the interaction effect between gender and the levels of treatment was not statistically significant (p = 0.0711). It postulated that gender was not a effect modifier. The types of treatments had no significant effect on chemotherapy response based on male and female lung cancer patients.
+
+For female lung cancer patient, the odds of less likely to respond (i.e progressive disease versus no change or partial remission or complete remission) to therapy are 2% lower than for that male patients, controlling for the type of treatment. Similarly, for female lung cancer patient, the odds of less likely to respond (i.e progressive disease or no change versus partial remission or complete remission) to therapy are 2% lower than that for male patients, holding the type of treatment constant.Also, for female lung cancer patients, the odds of being more likely to disease progression or no change or partial remission versus complete remission is 2% lower than that for male patients, holding the type of treatment constant.
+
+For Alternating treatments, the odds of less likely to respond (i.e progressive disease versus no change or partial remission or complete remission) to therapy are 12% higher than that for sequential treatment, holding gender constant. Similarly, for alternating treatment, the odds of less likely to respond (i.e progressive disease or no change versus partial remission or complete remission) to therapy are 12% higher than that for sequential treatment, controlling for gender. Also For,alternating treatments, the odds of being more likely to disease progression or no change or partial remission versus complete remission is 12% higher than that for sequential treatment, holding gender constant.
+
+
+# QUESTION TWELVE
+
+Researchers in a certain county tracked flu cases requiring hospitalization in those
+residents aged 65 and older during a two-month period one winter. They matched
+each case with 2 controls by sex and age (150 cases, 300 controls). They used
+medical records to determine whether cases and controls had received a flu vaccine
+shot and whether they had underlying lung disease. Their interest was to determine
+if flu vaccination prevents hospitalization for flu (severe cases of flu). The underlying
+lung disease is a potential confounder. The dataset is flumatch.csv and variables
+are:
+Outcome:1=case; 0=control
+Vaccine:1=vaccinated;0=not vaccinated
+Lung:1=underlying lung disease; 0=no underlying lung disease
+Id:identifies each matching group (1 case, 2 controls)
+What conclusion do you think the researchers made?
+```{r, echo=F}
+flu <- read.table("flumatch.csv", header=T, sep=",")
+#converting to factor variables
+flu<-within(flu, {
+  outcome<-factor(outcome, levels=0:1, labels = c("control", "case") )
+  vaccine<-factor(vaccine, levels=0:1, labels = c("not vaccinated", "caccinated"))
+  lungdisease<-factor(lungdisease, levels=0:1, labels=c("no underlying lung disease", "underlying lung disease"))
+})
+
+```
+
+## SOLUTION
+
+```{r, echo=FALSE}
+# fitting the model
+
+model6 <- glm(outcome~vaccine+lungdisease, data=flu, famil="binomial")
+
+logit2prob<-function(logit){
+  odds<-exp(logit)
+  prob<-odds/(1+odds)
+  return(prob)
+}
+prob<-logit2prob(coef(model6))
+
+coefs<-coef(model6)
+oddsratio <- exp(coefs)
+
+bb<-cbind(coefs, oddsratio, prob, summary(model6)$coef[,3],summary(model6)$coef[,4])
+colnames(bb)<-c("coefficients", "oddsratio","probabilities", "std-error", "p-value")
+kable(bb, digits = 3, format = "pandoc", caption = "Logistic Regression Model Coefficients") # the digits argument controls rounding
+```
+
+
+```{r, echo=FALSE}
+# testing the signficance of the model
+Li<-with(model6, null.deviance-deviance)
+df<-with(model6,df.null-df.residual)
+p_value<-round(with(model6, pchisq(null.deviance-deviance, df.null-df.residual, lower.tail=FALSE)),3)
+sigml<-cbind(Li, df, p_value)
+colnames(sigml)<-c("Statistic", "Degree of Freedom", "p-value")
+rownames(sigml)<-c("Likelihood Ratio")
+
+kable(sigml, digits = 3, format = "pandoc", caption = "Likelihood Ratio Test")
+```
+
+Using likelihood ratio test  we found that the model as a whole, fits the data significantly better than an empty model(p < 0.001).
+
+Vaccine was not a significant predictor at 0.05 level of significance (p=0.118). It implies that whether the respondents were vaccinated or not vaccinated does not provide enough information to determine if flu vaccination prevents hospitalization for flu after adjusting for lung disease.
+
+The analysis revealed that a vaccinated individual is 29% less likely to be hospitilized for flu compared to an individual who is not vaccinated though the difference is not significant controlling for having lung disease. The probability of a vaccinated individual getting hospitilized for flu is 0.415 which is lower than that for an individual who is not vaccinated (0.585).
+
+Therefore, since vaccination for flu had no signficant contribution to determine whether an individual should be hospitilized for flu, the researcher conluded that flu vaccination could not prevent hospitalization for flu.
+
+
